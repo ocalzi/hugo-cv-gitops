@@ -2,8 +2,15 @@
 *.secret
 *.env
 *.key
+*.pem
+*.p12
+*.pfx
 *-credentials.yaml
 *-credentials.json
+*-secret.yaml
+htpasswd
+kubeconfig
+kubeconfig.*
 
 # Example files are committed, actual secrets are not
 !*.example

@@ -4,6 +4,8 @@
 
 hostname: YOUR_HOSTNAME  # e.g. kairos
 
+ssh_pwauth: false  # disable password auth — keys only
+
 users:
   - name: kairos
     passwd: "YOUR_KAIROS_PASSWORD"  # generate: openssl rand -base64 24

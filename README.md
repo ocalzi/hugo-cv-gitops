@@ -10,6 +10,18 @@
 
 ---
 
+## Origin Story
+
+This project started as a migration away from a setup that worked, but felt increasingly wrong.
+
+The original stack was **Drone CI + Portainer** — a self-hosted CI pipeline pushing a Hugo CV to a Docker container managed through a web UI. It got the job done. But it wasn't something you could learn from, grow from, or be proud of showing.
+
+The question became: what would it look like to rebuild this properly? Not just "make it work" — but use the tools the industry is actually converging on. GitOps instead of clicking in a UI. Kubernetes instead of bare Docker. Gateway API instead of a reverse proxy config file. cert-manager instead of manual certificate renewals.
+
+The result is this repo. A Hugo CV — one of the simplest possible workloads — deployed through a full CNCF-native pipeline on an immutable OS, on a single Hetzner node. Deliberately over-engineered for a CV. Deliberately, because the point was never the CV.
+
+---
+
 ## Architecture
 
 ```
@@ -318,6 +330,15 @@ cilium install --version 1.18.7
 
 **Lesson:** Pin Cilium to a known-good version in production. Check the issue tracker before upgrading.
 </details>
+
+---
+
+## Security Considerations
+
+- SSH (TCP 22) and the Kubernetes API (TCP 6443) should be **restricted to your IP** in the Hetzner firewall — not open to the internet
+- Password-based SSH auth is **disabled** in the bootstrap configs (`ssh_pwauth: false`) — keys only
+- All `*.example` secret files contain placeholders only — never commit filled values
+- This platform has **no WAF, no NetworkPolicies, no mTLS, no image scanning, no runtime security** — see [docs/security.md](docs/security.md) for the full posture and gap analysis
 
 ---
 

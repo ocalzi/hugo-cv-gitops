@@ -34,10 +34,15 @@ Before starting, you need:
    - **No SSH key** at creation — Kairos cloud-init handles it
 
 2. In the Hetzner Firewall, allow inbound:
-   - TCP 22 (SSH)
-   - TCP 80 (HTTP)
-   - TCP 443 (HTTPS)
-   - TCP 6443 (Kubernetes API — restrict to your IP)
+
+   | Port | Protocol | Source | Purpose |
+   |------|----------|--------|---------|
+   | 22 | TCP | `YOUR_IP/32` | SSH — restrict to your IP only |
+   | 80 | TCP | `0.0.0.0/0` | HTTP (ACME challenges, redirects) |
+   | 443 | TCP | `0.0.0.0/0` | HTTPS (public CV, ArgoCD, Gitea) |
+   | 6443 | TCP | `YOUR_IP/32` | Kubernetes API — restrict to your IP only |
+
+   All other inbound traffic should be **dropped** by default.
 
 3. Note the server's public IP → set as `YOUR_NODE_IP`
 
