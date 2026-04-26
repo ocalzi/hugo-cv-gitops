@@ -1,0 +1,38 @@
+cluster:
+  name: default
+
+kubeProxyReplacement: true
+k8sServiceHost: 127.0.0.1
+k8sServicePort: 6443
+
+routingMode: tunnel
+tunnelProtocol: vxlan
+
+ipam:
+  mode: kubernetes
+
+operator:
+  # Single-node clusters must set replicas=1
+  replicas: 1
+
+gatewayAPI:
+  enabled: true
+  secretsNamespace:
+    create: true
+
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+
+bpf:
+  # Double the dynamic map size ratio to reduce CT map insertion failures.
+  # Tune based on your node RAM (default: 0.0025).
+  mapDynamicSizeRatio: 0.005
+  # Pre-allocate BPF maps at startup to avoid burst exhaustion under traffic spikes.
+  preallocateMaps: true
+
+# Increase Envoy access log forwarding buffer (default 4096).
+# Prevents "Discarded truncated access log message" warnings.
+extraArgs:
+  - "--envoy-access-log-buffer-size=16384"

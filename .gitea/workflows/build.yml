@@ -1,0 +1,93 @@
+# Hugo CV — Gitea Actions CI pipeline (primary)
+#
+# Triggers:
+#   - push to master → build, push, create Octopus release, deploy to production
+#   - PR opened/updated → build, push preview image, create Octopus release (no deploy)
+#
+# Required Gitea secrets (Settings → Secrets):
+#   REGISTRY_USERNAME     — container registry username
+#   REGISTRY_PASSWORD     — container registry password/token
+#   OCTOPUS_URL           — e.g. https://octopus.YOUR_DOMAIN
+#   OCTOPUS_API_KEY       — Octopus Deploy API key
+
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+env:
+  REGISTRY: YOUR_REGISTRY
+  IMAGE_NAME: YOUR_IMAGE
+  OCTOPUS_PROJECT: Hugo-CV
+  OCTOPUS_SPACE: Spaces-1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+      sha: ${{ steps.meta.outputs.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image metadata
+        id: meta
+        run: |
+          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BRANCH=$(echo "${{ github.head_ref }}" | tr '/' '-')
+            TAG="${BRANCH}-${SHA}"
+          else
+            TAG="master-${SHA}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to registry
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | \
+            docker login ${{ env.REGISTRY }} -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+
+      - name: Build and push image
+        run: |
+          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }} .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+
+  octopus-release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Octopus CLI
+        run: |
+          curl -L https://github.com/OctopusDeploy/cli/releases/latest/download/octopus_linux_amd64.tar.gz | tar xz
+          sudo mv octopus /usr/local/bin/
+
+      - name: Create Octopus release
+        env:
+          OCTOPUS_URL: ${{ secrets.OCTOPUS_URL }}
+          OCTOPUS_API_KEY: ${{ secrets.OCTOPUS_API_KEY }}
+        run: |
+          octopus release create \
+            --project "${{ env.OCTOPUS_PROJECT }}" \
+            --space "${{ env.OCTOPUS_SPACE }}" \
+            --version "${{ needs.build.outputs.sha }}" \
+            --variable "ImageTag:${{ needs.build.outputs.image_tag }}"
+
+      - name: Deploy to production (master only)
+        if: github.ref == 'refs/heads/master'
+        env:
+          OCTOPUS_URL: ${{ secrets.OCTOPUS_URL }}
+          OCTOPUS_API_KEY: ${{ secrets.OCTOPUS_API_KEY }}
+        run: |
+          octopus release deploy \
+            --project "${{ env.OCTOPUS_PROJECT }}" \
+            --space "${{ env.OCTOPUS_SPACE }}" \
+            --version "${{ needs.build.outputs.sha }}" \
+            --environment production

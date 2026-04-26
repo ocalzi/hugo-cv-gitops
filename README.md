@@ -1,0 +1,343 @@
+# hugo-cv-gitops
+
+> Deploy a production-grade Hugo CV on Kubernetes using a full CNCF-native GitOps pipeline —
+> with multi-persona support and PR preview environments. Running on Hetzner Cloud.
+
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Kubernetes](https://img.shields.io/badge/kubernetes-CNCF%20Graduated-blue)](https://kubernetes.io)
+[![ArgoCD](https://img.shields.io/badge/argocd-CNCF%20Graduated-blue)](https://argoproj.github.io/cd/)
+[![Cilium](https://img.shields.io/badge/cilium-CNCF%20Graduated-orange)](https://cilium.io)
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Hetzner Cloud                               │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │                    Kairos Node (CPX42)                       │   │
+│  │                                                              │   │
+│  │  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐   │   │
+│  │  │    Kairos    │   │     k3s      │   │    Cilium      │   │   │
+│  │  │ Immutable OS │   │  v1.35.2+k3s │   │ CNI + Gateway  │   │   │
+│  │  └──────────────┘   └──────────────┘   └────────────────┘   │   │
+│  │                                                              │   │
+│  │  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐   │   │
+│  │  │ cert-manager │   │    ArgoCD    │   │  Gitea Runner  │   │   │
+│  │  │  OVH DNS-01  │   │  GitOps CD   │   │ act + BuildKit │   │   │
+│  │  └──────────────┘   └──────────────┘   └────────────────┘   │   │
+│  │                                                              │   │
+│  │  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐   │   │
+│  │  │   Gitea      │   │   Octopus    │   │   Hugo CV      │   │   │
+│  │  │  SCM + CI    │   │    Deploy    │   │ nginx + multi  │   │   │
+│  │  └──────────────┘   └──────────────┘   │    persona     │   │   │
+│  │                                        └────────────────┘   │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  Public IP → Hetzner Firewall → Cilium Gateway API (port 80/443)    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## CNCF Stack
+
+| Project | Role | CNCF Status | Docs |
+|---------|------|-------------|------|
+| [Kubernetes](https://kubernetes.io) | Container orchestration | Graduated | [Docs](https://kubernetes.io/docs/) |
+| [k3s](https://k3s.io) | Lightweight Kubernetes distro | Sandbox | [Docs](https://docs.k3s.io/) |
+| [Kairos](https://kairos.io) | Immutable Linux OS | Sandbox | [Docs](https://kairos.io/docs/) |
+| [Cilium](https://cilium.io) | CNI + Gateway API implementation | Graduated | [Docs](https://docs.cilium.io/) |
+| [cert-manager](https://cert-manager.io) | Automated TLS certificate management | Graduated | [Docs](https://cert-manager.io/docs/) |
+| [Argo CD](https://argoproj.github.io/cd/) | GitOps continuous delivery | Graduated | [Docs](https://argo-cd.readthedocs.io/) |
+| [Helm](https://helm.sh) | Kubernetes package management | Graduated | [Docs](https://helm.sh/docs/) |
+| [Gateway API](https://gateway-api.sigs.k8s.io/) | Next-gen Kubernetes ingress (SIG-network) | — | [Docs](https://gateway-api.sigs.k8s.io/guides/) |
+
+Plus: [Octopus Deploy](https://octopus.com) as release orchestrator, [Gitea](https://gitea.com) as self-hosted SCM.
+
+---
+
+## Features
+
+- **Multi-persona CVs** — one Docker image, multiple deployments, multiple domains (`cv.`, `architect.`, etc.)
+- **PR preview environments** — automatic `pr-N.preview.YOUR_DOMAIN` on every pull request
+- **Wildcard TLS** — via DNS-01 challenge (OVH webhook for cert-manager)
+- **In-cluster Docker builds** — BuildKit sidecar in Gitea Runner, no Docker Hub rate limits
+- **Dual CI** — Gitea Actions (primary, self-hosted) + GitHub Actions (mirror, cloud-hosted)
+- **Octopus Deploy** — release orchestration and deployment tracking between CI and ArgoCD
+- **Immutable OS** — Kairos ensures reproducible, tamper-resistant node state
+
+---
+
+## Getting Started
+
+See [docs/getting-started.md](docs/getting-started.md) for the full step-by-step guide.
+
+**Prerequisites:**
+- Hetzner Cloud account + API token
+- Domain managed via OVH DNS (or adapt cert-manager issuer for your DNS provider)
+- Octopus Deploy instance (self-hosted or cloud, free tier available)
+- Quay.io or other container registry account
+- Gitea instance (self-hosted) or adapt workflows for GitHub
+
+**Quick overview:**
+1. Create a Hetzner server and boot Kairos from ISO
+2. Upload `bootstrap/cilium-cloud-config.yaml` — k3s, Cilium, and Hetzner CCM install automatically
+3. Apply platform manifests (`platform/`)
+4. Configure ArgoCD to watch your gitops repo
+5. Push your Hugo CV source — CI builds, Octopus deploys, ArgoCD syncs
+
+---
+
+## Pipeline
+
+```
+git push master (Hugo-CV repo)
+        │
+        ▼
+┌───────────────────┐
+│  Gitea Actions    │  (or GitHub Actions — same steps)
+│  .gitea/workflows │
+│  /build.yml       │
+│                   │
+│  1. docker build  │──► quay.io/YOUR_REGISTRY/YOUR_IMAGE:master-<sha>
+│  2. docker push   │
+│  3. octo release  │
+└────────┬──────────┘
+         │
+         ▼
+┌───────────────────┐
+│  Octopus Deploy   │
+│                   │
+│  Project: Hugo-CV │
+│  Env: production  │
+│  → "Deploy K8s    │
+│     YAML" step    │
+└────────┬──────────┘
+         │
+         ▼
+┌───────────────────┐
+│     ArgoCD        │
+│                   │
+│  App: hugo-cv     │
+│  → sync gitops    │
+│    repo → cluster │
+└────────┬──────────┘
+         │
+         ▼
+  hugo-cv namespace
+  ├── cv-olivier   → cv.YOUR_DOMAIN
+  ├── cv-architect → architect.YOUR_DOMAIN
+  └── cv-octy      → octy.YOUR_DOMAIN
+```
+
+---
+
+## Customisation
+
+Replace these placeholders throughout the manifests:
+
+| Placeholder | Your value | Example |
+|------------|-----------|---------|
+| `YOUR_DOMAIN` | Your root domain | `example.com` |
+| `YOUR_NODE_IP` | Hetzner node public IP | `1.2.3.4` |
+| `YOUR_HOSTNAME` | Kairos node hostname | `kairos` |
+| `YOUR_REGISTRY` | Container registry host | `quay.io` |
+| `YOUR_IMAGE` | Image name | `myuser/cv` |
+| `YOUR_GITEA_URL` | Gitea base URL | `https://git.example.com` |
+| `YOUR_ORG` | Gitea org/user | `my-org` |
+| `YOUR_EMAIL` | ACME registration email | `admin@example.com` |
+| `YOUR_GITHUB_USERNAME` | GitHub username for SSH key import | `myuser` |
+| `YOUR_HETZNER_API_TOKEN` | Hetzner Cloud API token | — |
+| `YOUR_OVH_APP_KEY` | OVH API application key | — |
+| `YOUR_OVH_APP_SECRET` | OVH API application secret | — |
+| `YOUR_OVH_CONSUMER_KEY` | OVH API consumer key | — |
+| `YOUR_GITEA_TOKEN` | Gitea personal access token | — |
+| `YOUR_GITEA_RUNNER_REGISTRATION_TOKEN` | Gitea runner token | — |
+
+For password-protected CV (htpasswd): `htpasswd -B -c nginx/cv-htpasswd USERNAME`
+
+---
+
+## Issues & Lessons Learned
+
+Real issues encountered building this platform. Shared so you don't have to rediscover them.
+
+<details>
+<summary>HTTP-01 ACME challenge returns 404 on ALL routes, not just the challenge path</summary>
+
+**Symptom:** cert-manager HTTP-01 challenge fails. Checking the challenge URL manually returns 404. But so do all other routes on the cluster — including ones that were working before.
+
+**Root cause:** Cilium Envoy enters a degraded state when a Gateway listener references a TLS secret that does not yet exist. The Gateway continues to serve traffic but Envoy cannot program the listeners correctly, causing 404 across the board — not just on the broken listener.
+
+**Fix:** Temporarily remove the HTTPS listener that references the missing secret from the Gateway spec. Allow the HTTP-01 challenge to complete and the secret to be created. Then restore the listener.
+
+**Lesson:** On Cilium Gateway API, a single listener with a bad TLS secret reference poisons the entire Gateway. Don't add HTTPS listeners before their secrets exist.
+</details>
+
+<details>
+<summary>HTTP-01 challenge intercepted by redirect HTTPRoute</summary>
+
+**Symptom:** HTTP-01 ACME challenge returns 301 redirect instead of serving the challenge token. cert-manager reports the challenge as failed.
+
+**Root cause:** A catch-all HTTPRoute with `PathPrefix: /` was redirecting all HTTP traffic to HTTPS — including the `/.well-known/acme-challenge/` path that cert-manager needs to serve over plain HTTP.
+
+**Fix:** Temporarily delete the redirect HTTPRoute before triggering cert renewal. Restore it after the certificate is issued. Alternatively, switch to DNS-01 challenges to avoid this entirely.
+
+**Lesson:** HTTP-01 and catch-all HTTP→HTTPS redirects don't coexist. DNS-01 avoids the problem entirely if your DNS provider is supported.
+</details>
+
+<details>
+<summary>Octopus Kubernetes agent fails to poll — hairpin NAT</summary>
+
+**Symptom:** Octopus K8s agent tentacle installed in-cluster, but it never connects to the Octopus server. Logs show connection timeouts to the external hostname.
+
+**Root cause:** The agent was configured to poll the external Octopus hostname (`octopus.YOUR_DOMAIN`). On a single-node cluster without hairpin NAT, a pod cannot reach a LoadBalancer service via its external IP from inside the same node. The packet is dropped.
+
+**Fix:** Configure the agent to use the internal cluster DNS name instead:
+`http://octopus-deploy.octopus-deploy.svc.cluster.local:10943/`
+
+**Lesson:** Always use internal cluster DNS for in-cluster service communication. External hostnames require hairpin NAT, which is often absent on single-node clusters.
+</details>
+
+<details>
+<summary>Octopus Kubernetes agent PVC stuck in Pending — ReadWriteMany not supported</summary>
+
+**Symptom:** Octopus agent Helm chart installs but the agent pod never starts. PVC stays in `Pending` state.
+
+**Root cause:** The agent chart requests a `ReadWriteMany` (RWX) PersistentVolumeClaim by default. The `local-path` provisioner only supports `ReadWriteOnce` (RWO). The PVC can never be bound.
+
+**Fix:** Install `csi-driver-nfs` (v4.10.0) and use it as the backing storage class:
+```
+--set persistence.nfs.backing.storageClassName=local-path
+```
+
+**Lesson:** Check your storage class access mode support before installing Helm charts that request RWX. `local-path` is RWO-only.
+</details>
+
+<details>
+<summary>Octopus pre-install hook fails — ServiceAccount doesn't exist yet</summary>
+
+**Symptom:** `helm install` for Octopus K8s agent fails immediately with a permissions error during the pre-install hook.
+
+**Root cause:** The chart's pre-install hook runs a Job that needs a ServiceAccount (`octopus-agent-tentacle-pre`). But Helm creates resources in order, and the ServiceAccount hasn't been created yet when the hook fires.
+
+**Fix:** Manually pre-create the ServiceAccount before running `helm install`:
+```bash
+kubectl create serviceaccount octopus-agent-tentacle-pre -n octopus-agent-production
+```
+
+**Lesson:** When a Helm chart's pre-install hook depends on resources that the chart itself creates, you may need to pre-create those resources manually.
+</details>
+
+<details>
+<summary>Valkey (Redis cluster) quorum failure — session errors in Gitea</summary>
+
+**Symptom:** Gitea returns session errors intermittently. Valkey (Redis-compatible) logs show cluster quorum failures.
+
+**Root cause:** Valkey was configured with `cluster.nodes=1`. Redis cluster mode requires a minimum of 3 nodes to establish quorum. With 1 node, the cluster never becomes healthy.
+
+**Fix:** Set `cluster.nodes=3` (minimum) and `cluster.replicas=0`:
+```
+helm upgrade gitea gitea-charts/gitea \
+  --set valkey.cluster.nodes=3 \
+  --set valkey.cluster.replicas=0
+```
+
+**Lesson:** Redis cluster mode has a hard minimum of 3 nodes. If you only need 1 Redis instance, disable cluster mode entirely and use standalone mode instead.
+</details>
+
+<details>
+<summary>Hetzner CCM sets wrong node IP — kubelet TLS cert mismatch</summary>
+
+**Symptom:** After installing Hetzner Cloud Controller Manager, nodes show a private IP as `InternalIP`. Components that rely on the node IP (like kubelet certificate SANs) break.
+
+**Root cause:** CCM was installed with `networking.enabled=true`. On clusters where the private Hetzner network is not configured or the node IP doesn't match the kubelet certificate SAN, this causes a TLS handshake failure.
+
+**Fix:** Install CCM with `networking.enabled=false`:
+```bash
+helm upgrade --install hcloud-cloud-controller-manager \
+  hetzner-cloud/hcloud-cloud-controller-manager \
+  --namespace kube-system \
+  --set networking.enabled=false
+```
+
+**Lesson:** Unless you explicitly need Hetzner private network routing between nodes, set `networking.enabled=false` on the CCM.
+</details>
+
+<details>
+<summary>Stale ACME challenges — cert-manager doesn't retry after 8+ hours</summary>
+
+**Symptom:** A cert-manager challenge has been pending for many hours. The certificate is never issued. Deleting and recreating the Certificate resource doesn't help.
+
+**Root cause:** cert-manager creates `Challenge` and `Order` resources. When a challenge fails, it is retried with exponential backoff — but after a certain point it stops retrying. Simply recreating the `Certificate` doesn't clean up the stuck `Order`.
+
+**Fix:** Delete both the `Challenge` and the `Order` objects to force cert-manager to start fresh:
+```bash
+kubectl delete challenge -n default --all
+kubectl delete order -n default --all
+```
+cert-manager will create new ones and begin the process again.
+
+**Lesson:** When ACME challenges are stuck, delete Challenge and Order objects — not the Certificate.
+</details>
+
+<details>
+<summary>cert-manager-webhook-ovh v0.9.8 ignores ClusterIssuer solver config (ambient mode)</summary>
+
+**Symptom:** DNS-01 challenge fails even though the ClusterIssuer looks correct. The webhook logs show it's not reading credentials from the secret referenced in the solver config.
+
+**Root cause:** cert-manager-webhook-ovh v0.9.8 runs in "ambient credentials" mode. It ignores per-solver credential references in the ClusterIssuer spec and instead reads credentials from a globally configured secret set at webhook install time.
+
+**Fix:** Reinstall or upgrade the webhook with global credential values:
+```bash
+helm upgrade cert-manager-webhook-ovh cert-manager-webhook-ovh/cert-manager-webhook-ovh \
+  --namespace cert-manager \
+  --set groupName=acme.YOUR_DOMAIN \
+  --set ovhCredentials.applicationKey=YOUR_OVH_APP_KEY \
+  --set ovhCredentials.applicationSecret=YOUR_OVH_APP_SECRET \
+  --set ovhCredentials.consumerKey=YOUR_OVH_CONSUMER_KEY
+```
+
+**Lesson:** cert-manager-webhook-ovh v0.9.8 ambient mode — configure credentials at the Helm level, not in the ClusterIssuer.
+</details>
+
+<details>
+<summary>Cilium 1.19.x regression — CNI broken, pods fail to start</summary>
+
+**Symptom:** After upgrading Cilium to 1.19.x, new pods fail to start with network errors. Existing pods may be unaffected.
+
+**Root cause:** Cilium 1.19.x introduced a regression that affects certain CNI configurations. Tracked in [cilium/cilium#44430](https://github.com/cilium/cilium/issues/44430).
+
+**Fix:** Pin Cilium to 1.18.7:
+```bash
+cilium install --version 1.18.7
+```
+
+**Lesson:** Pin Cilium to a known-good version in production. Check the issue tracker before upgrading.
+</details>
+
+---
+
+## Known Limitations
+
+- **Single-node, no HA** — this setup runs everything on one node. No etcd quorum, no control-plane redundancy. A node reboot means brief downtime.
+- **Hetzner-specific** — bootstrap config, CCM, and node assumptions are Hetzner-flavoured. Adapting to other cloud providers requires replacing the CCM and adjusting IP pool config.
+- **OVH DNS-01 only** — cert-manager is configured for OVH DNS. Other DNS providers need a different webhook or solver. See [cert-manager DNS-01 providers](https://cert-manager.io/docs/configuration/acme/dns01/).
+- **Cilium pinned to 1.18.7** — due to regression in 1.19.x ([cilium/cilium#44430](https://github.com/cilium/cilium/issues/44430)). Check issue status before upgrading.
+- **Octopus Deploy licence required** — free tier available for small teams. See [octopus.com/pricing](https://octopus.com/pricing).
+- **In-cluster BuildKit (Gitea Actions)** — the Gitea Actions workflow uses Docker-in-Docker inside the cluster. The GitHub Actions mirror uses Buildx on GitHub-hosted runners instead. Both push to the same external registry.
+
+---
+
+## Contributing
+
+Issues and PRs welcome. If you hit a new problem not documented above, please open an issue — the Issues & Lessons Learned section is the most valuable part of this repo.
+
+---
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE).

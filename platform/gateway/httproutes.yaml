@@ -1,0 +1,41 @@
+# HTTPRoutes for HTTP→HTTPS redirect and CV persona routing.
+# Adjust hostnames and backend refs to match your deployment.
+
+---
+# HTTP → HTTPS redirect for all CV domains
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: cv-redirect
+  namespace: default
+spec:
+  parentRefs:
+    - name: main-gateway
+      sectionName: http
+  hostnames:
+    - cv.YOUR_DOMAIN
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+
+---
+# Main CV persona (cv.YOUR_DOMAIN → hugo-cv namespace)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: cv-olivier
+  namespace: default
+spec:
+  parentRefs:
+    - name: main-gateway
+      sectionName: https-cv
+  hostnames:
+    - cv.YOUR_DOMAIN
+  rules:
+    - backendRefs:
+        - name: cv-service-olivier
+          namespace: hugo-cv
+          port: 80

@@ -1,0 +1,96 @@
+# Cilium Gateway API — single Gateway for all HTTPS listeners.
+#
+# Prerequisites:
+#   - Gateway API experimental CRDs installed:
+#     kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/experimental-install.yaml
+#   - CiliumLoadBalancerIPPool pinning your node IP:
+#     See ippool.yaml
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: main-gateway
+  namespace: default
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # CV — main persona
+    - name: https-cv
+      port: 443
+      protocol: HTTPS
+      hostname: cv.YOUR_DOMAIN
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: cv-YOUR_DOMAIN-tls
+
+    # PR Preview environments — wildcard listener
+    - name: https-preview
+      port: 443
+      protocol: HTTPS
+      hostname: "*.preview.YOUR_DOMAIN"
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: preview-wildcard-tls
+
+    # ArgoCD
+    - name: https-argocd
+      port: 443
+      protocol: HTTPS
+      hostname: argo.YOUR_DOMAIN
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: argo-YOUR_DOMAIN-tls
+
+    # Gitea
+    - name: https-gitea
+      port: 443
+      protocol: HTTPS
+      hostname: git.YOUR_DOMAIN
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: git-YOUR_DOMAIN-tls
+
+    # Add additional personas here (architect, octy, etc.)
+    # - name: https-architect
+    #   port: 443
+    #   protocol: HTTPS
+    #   hostname: architect.YOUR_DOMAIN
+    #   ...
+
+---
+# Pin the Gateway to your Hetzner node's public IP.
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: main-pool
+  namespace: default
+spec:
+  blocks:
+    - cidr: YOUR_NODE_IP/32

@@ -1,0 +1,35 @@
+{{- range .Values.personas }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cv-{{ .name }}
+  namespace: hugo-cv
+spec:
+  replicas: {{ .replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: cv-{{ .name }}
+  template:
+    metadata:
+      labels:
+        app: cv-{{ .name }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: cv
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+{{- end }}

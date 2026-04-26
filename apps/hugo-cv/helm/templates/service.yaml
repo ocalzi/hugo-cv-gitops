@@ -1,0 +1,14 @@
+{{- range .Values.personas }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cv-service-{{ .name }}
+  namespace: hugo-cv
+spec:
+  selector:
+    app: cv-{{ .name }}
+  ports:
+    - port: 80
+      targetPort: 80
+{{- end }}

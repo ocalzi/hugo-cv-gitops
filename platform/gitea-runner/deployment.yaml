@@ -1,0 +1,78 @@
+# Gitea Actions runner with Docker-in-Docker sidecar.
+# The act-runner polls Gitea for jobs; dind provides Docker for builds.
+#
+# Note: dind requires privileged mode. Acceptable on a single-node self-managed cluster.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: act-runner
+  namespace: gitea-runner
+  labels:
+    app: act-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: act-runner
+  template:
+    metadata:
+      labels:
+        app: act-runner
+    spec:
+      restartPolicy: Always
+      volumes:
+        - name: docker-certs
+          emptyDir: {}
+        - name: runner-data
+          persistentVolumeClaim:
+            claimName: act-runner-vol
+
+      containers:
+        # Gitea act-runner
+        - name: runner
+          image: gitea/act_runner:latest
+          command:
+            - sh
+            - -c
+            - |
+              while ! nc -z localhost 2376 </dev/null; do
+                echo 'waiting for docker daemon...'; sleep 5
+              done
+              /sbin/tini -- run.sh
+          env:
+            - name: DOCKER_HOST
+              value: tcp://localhost:2376
+            - name: DOCKER_CERT_PATH
+              value: /certs/client
+            - name: DOCKER_TLS_VERIFY
+              value: "1"
+            - name: GITEA_INSTANCE_URL
+              # Use internal cluster DNS — avoids hairpin NAT issues
+              value: http://gitea-http.gitea.svc.cluster.local:3000
+            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: runner-secret
+                  key: token
+            - name: GITEA_RUNNER_NAME
+              value: k8s-runner
+            - name: GITEA_RUNNER_LABELS
+              value: ubuntu-latest:docker://node:20-bullseye,ubuntu-22.04:docker://node:20-bullseye
+          volumeMounts:
+            - mountPath: /certs
+              name: docker-certs
+            - mountPath: /data
+              name: runner-data
+
+        # Docker-in-Docker daemon for building images
+        - name: daemon
+          image: docker:27-dind
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: /certs
+          volumeMounts:
+            - mountPath: /certs
+              name: docker-certs

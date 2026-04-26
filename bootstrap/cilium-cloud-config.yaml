@@ -1,0 +1,71 @@
+#cloud-config
+# Kairos OS full bootstrap — installs k3s, Cilium, and Hetzner CCM automatically.
+# Idempotent: guarded by .bootstrap-done sentinel file.
+
+hostname: YOUR_HOSTNAME  # e.g. kairos
+
+users:
+  - name: kairos
+    passwd: "YOUR_KAIROS_PASSWORD"  # generate: openssl rand -base64 24
+    groups: [admin]
+    ssh_authorized_keys:
+      - github:YOUR_GITHUB_USERNAME
+      - "YOUR_SSH_PUBLIC_KEY"
+
+k3s:
+  enabled: true
+  args:
+    - --disable-kube-proxy
+    - --flannel-backend=none
+    - --disable-network-policy
+    - --disable-cloud-controller
+    - --disable=traefik
+    - --disable=servicelb
+    - --write-kubeconfig-mode=644
+    - --kubelet-arg=cloud-provider=external
+
+stages:
+  network:
+    - name: "Bootstrap Cilium and Hetzner CCM"
+      if: '[ ! -f /var/lib/rancher/k3s/server/manifests/.bootstrap-done ]'
+      commands:
+        # Wait for k3s API to be ready
+        - until kubectl get nodes 2>/dev/null; do sleep 5; done
+
+        # Gateway API CRDs — must be applied before Cilium
+        - kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/experimental-install.yaml
+
+        # Cilium — v1.18.7 pinned, avoids 1.19.x regression (cilium/cilium#44430)
+        # operator.replicas=1 is mandatory for single-node clusters
+        - |
+          cilium install --version 1.18.7 \
+            --set kubeProxyReplacement=true \
+            --set k8sServiceHost=127.0.0.1 \
+            --set k8sServicePort=6443 \
+            --set gatewayAPI.enabled=true \
+            --set gatewayAPI.secretsNamespace.create=true \
+            --set operator.replicas=1 \
+            --set ipam.mode=kubernetes \
+            --set hubble.enabled=true \
+            --set hubble.relay.enabled=true
+
+        # Hetzner CCM credentials
+        # Create your API token at: https://console.hetzner.cloud → Security → API Tokens
+        - |
+          kubectl create secret generic hcloud -n kube-system \
+            --from-literal=token="YOUR_HETZNER_API_TOKEN" \
+            --from-literal=network="YOUR_HETZNER_NETWORK_NAME"
+
+        # Hetzner Cloud Controller Manager
+        # networking.enabled=false avoids kubelet TLS cert mismatch with private IP
+        - helm repo add hetzner-cloud https://charts.hetzner.cloud
+        - |
+          helm upgrade --install hcloud-cloud-controller-manager \
+            hetzner-cloud/hcloud-cloud-controller-manager \
+            --namespace kube-system \
+            --set networking.enabled=false
+
+        # Label node with worker role
+        - kubectl label node $(hostname) node-role.kubernetes.io/worker=
+
+        - touch /var/lib/rancher/k3s/server/manifests/.bootstrap-done

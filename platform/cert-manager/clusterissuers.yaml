@@ -1,0 +1,45 @@
+# ClusterIssuers for Let's Encrypt via OVH DNS-01 webhook.
+#
+# Prerequisites:
+#   1. cert-manager installed with --enable-gateway-api flag
+#   2. cert-manager-webhook-ovh installed (aureq fork v0.9.8+)
+#      helm repo add cert-manager-webhook-ovh https://aureq.github.io/cert-manager-webhook-ovh
+#      helm install cert-manager-webhook-ovh cert-manager-webhook-ovh/cert-manager-webhook-ovh \
+#        --namespace cert-manager \
+#        --set groupName=acme.YOUR_DOMAIN \
+#        --set ovhCredentials.applicationKey=YOUR_OVH_APP_KEY \
+#        --set ovhCredentials.applicationSecret=YOUR_OVH_APP_SECRET \
+#        --set ovhCredentials.consumerKey=YOUR_OVH_CONSUMER_KEY
+#   3. OVH credentials secret created (see secret-ovh-credentials.yaml.example)
+#
+# OVH API credentials: https://api.ovh.com/createApp/
+
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod-dns01
+spec:
+  acme:
+    email: YOUR_EMAIL
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-dns01-account-key
+    solvers:
+      - dns01:
+          cnameStrategy: None
+          webhook:
+            groupName: acme.YOUR_DOMAIN
+            solverName: ovh
+            config:
+              endpoint: ovh-eu  # or ovh-ca, ovh-us — see https://api.ovh.com
+              authenticationMethod: application
+              applicationKeyRef:
+                name: letsencrypt-prod-dns01-ovh-credentials
+                key: applicationKey
+              applicationSecretRef:
+                name: letsencrypt-prod-dns01-ovh-credentials
+                key: applicationSecret
+              applicationConsumerKeyRef:
+                name: letsencrypt-prod-dns01-ovh-credentials
+                key: applicationConsumerKey

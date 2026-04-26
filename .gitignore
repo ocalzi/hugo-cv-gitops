@@ -1,0 +1,13 @@
+# Secrets — never commit
+*.secret
+*.env
+*.key
+*-credentials.yaml
+*-credentials.json
+
+# Example files are committed, actual secrets are not
+!*.example
+
+# OS
+.DS_Store
+Thumbs.db

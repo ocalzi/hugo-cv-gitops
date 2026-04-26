@@ -1,0 +1,30 @@
+# Certificate template — duplicate and adapt for each domain.
+# Uses the letsencrypt-prod-dns01 ClusterIssuer (DNS-01 via OVH webhook).
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cv-YOUR_DOMAIN-tls
+  namespace: default
+spec:
+  secretName: cv-YOUR_DOMAIN-tls
+  dnsNames:
+    - cv.YOUR_DOMAIN
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod-dns01
+
+---
+# Wildcard cert for PR preview environments (*.preview.YOUR_DOMAIN)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: preview-wildcard-tls
+  namespace: default
+spec:
+  secretName: preview-wildcard-tls
+  dnsNames:
+    - "*.preview.YOUR_DOMAIN"
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod-dns01

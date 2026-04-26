@@ -1,0 +1,24 @@
+# ArgoCD Application — Hugo CV (GitOps source of truth).
+# Points to your gitops repo where Helm chart values live.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hugo-cv
+  namespace: argocd
+spec:
+  destination:
+    namespace: hugo-cv
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    repoURL: YOUR_GITEA_URL/YOUR_ORG/gitops
+    targetRevision: main
+    path: apps/hugo-cv
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

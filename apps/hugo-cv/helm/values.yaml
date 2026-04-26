@@ -1,0 +1,28 @@
+# Hugo CV — multi-persona Helm values.
+# Each persona gets its own Deployment, Service, and HTTPRoute.
+
+image:
+  repository: YOUR_REGISTRY/YOUR_IMAGE
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: registry-pull-secret
+
+gateway:
+  name: main-gateway
+  namespace: default
+
+# Define one or more personas.
+# Each gets: cv-service-<name>, cv-<name> deployment, HTTPRoute on its domain.
+personas:
+  - name: olivier
+    domain: cv.YOUR_DOMAIN
+    certSecret: cv-YOUR_DOMAIN-tls
+    replicas: 1
+
+  # Uncomment and adapt for additional personas:
+  # - name: architect
+  #   domain: architect.YOUR_DOMAIN
+  #   certSecret: architect-YOUR_DOMAIN-tls
+  #   replicas: 1

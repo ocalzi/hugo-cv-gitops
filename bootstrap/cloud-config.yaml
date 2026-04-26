@@ -1,0 +1,25 @@
+#cloud-config
+# Kairos OS minimal bootstrap — k3s flags only.
+# Use cilium-cloud-config.yaml for full automated bootstrap with Cilium + CCM.
+
+hostname: YOUR_HOSTNAME  # e.g. kairos
+
+users:
+  - name: kairos
+    passwd: "YOUR_KAIROS_PASSWORD"  # generate: openssl rand -base64 24
+    groups: [admin]
+    ssh_authorized_keys:
+      - github:YOUR_GITHUB_USERNAME
+      - "YOUR_SSH_PUBLIC_KEY"
+
+k3s:
+  enabled: true
+  args:
+    - --disable-kube-proxy
+    - --flannel-backend=none
+    - --disable-network-policy
+    - --disable-cloud-controller
+    - --disable=traefik
+    - --disable=servicelb
+    - --write-kubeconfig-mode=644
+    - --kubelet-arg=cloud-provider=external

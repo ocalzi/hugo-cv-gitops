@@ -1,0 +1,23 @@
+# PR Preview — values set by CI workflow at deploy time.
+# These defaults are overridden by ArgoCD Application helm.parameters.
+
+pr: "0"
+branch: "preview/branch-name"
+sha: "abc1234"
+
+image:
+  repository: YOUR_REGISTRY/YOUR_IMAGE
+  # Tag is set by CI: <branch>-<sha>
+  tag: "preview/branch-name-abc1234"
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: registry-pull-secret
+
+domain: YOUR_DOMAIN
+# Full preview URL: pr-<pr>.preview.YOUR_DOMAIN
+
+gateway:
+  name: main-gateway
+  namespace: default
+  sectionName: https-preview
