@@ -406,3 +406,9 @@ Issues and PRs welcome. If you hit a new problem not documented above, please op
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE).
+
+---
+
+[![AI assisted](https://img.shields.io/badge/AI%20assisted-Claude%20Code-blueviolet)](https://claude.ai/code)
+
+Platform validation, divergence documentation, and manifest corrections in this repo were assisted by [Claude Code](https://claude.ai/code). All infrastructure decisions and real-cluster testing were performed by the author.
