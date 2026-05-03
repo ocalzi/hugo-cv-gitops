@@ -21,8 +21,8 @@ spec:
         namespaces:
           from: All
 
-    # CV — main persona
-    - name: https-cv
+    # CV — main persona (name must match Helm chart convention: https-cv-<persona-name>)
+    - name: https-cv-YOUR_PERSONA_NAME
       port: 443
       protocol: HTTPS
       hostname: cv.YOUR_DOMAIN

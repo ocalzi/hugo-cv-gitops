@@ -16,7 +16,7 @@ gateway:
 # Define one or more personas.
 # Each gets: cv-service-<name>, cv-<name> deployment, HTTPRoute on its domain.
 personas:
-  - name: olivier
+  - name: YOUR_PERSONA_NAME
     domain: cv.YOUR_DOMAIN
     certSecret: cv-YOUR_DOMAIN-tls
     replicas: 1

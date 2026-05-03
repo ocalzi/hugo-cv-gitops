@@ -1,6 +1,6 @@
 #cloud-config
-# Kairos OS minimal bootstrap — k3s flags only.
-# Use cilium-cloud-config.yaml for full automated bootstrap with Cilium + CCM.
+# Kairos OS bootstrap — configures k3s with the flags required for Cilium CNI.
+# Cilium and Hetzner CCM must be installed manually after boot (see docs/getting-started.md Step 4).
 
 hostname: YOUR_HOSTNAME  # e.g. kairos
 

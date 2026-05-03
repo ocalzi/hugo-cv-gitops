@@ -14,7 +14,7 @@ spec:
   source:
     repoURL: YOUR_GITEA_URL/YOUR_ORG/gitops
     targetRevision: main
-    path: apps/hugo-cv
+    path: apps/hugo-cv/helm
   syncPolicy:
     automated:
       prune: true

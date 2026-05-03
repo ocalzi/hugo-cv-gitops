@@ -92,14 +92,15 @@ See [docs/getting-started.md](docs/getting-started.md) for the full step-by-step
 - Domain managed via OVH DNS (or adapt cert-manager issuer for your DNS provider)
 - Octopus Deploy instance (self-hosted or cloud, free tier available)
 - Quay.io or other container registry account
-- Gitea instance (self-hosted) or adapt workflows for GitHub
+- Git provider — Gitea (self-hosted), GitHub, or GitLab. See [Gitea Helm chart](https://gitea.com/gitea/helm-chart) if you need a self-hosted instance
 
 **Quick overview:**
 1. Create a Hetzner server and boot Kairos from ISO
-2. Upload `bootstrap/cilium-cloud-config.yaml` — k3s, Cilium, and Hetzner CCM install automatically
-3. Apply platform manifests (`platform/`)
-4. Configure ArgoCD to watch your gitops repo
-5. Push your Hugo CV source — CI builds, Octopus deploys, ArgoCD syncs
+2. Upload `bootstrap/cloud-config.yaml` — k3s starts with CNI-ready flags
+3. Install Cilium 1.18.7 and Hetzner CCM manually (see getting-started Step 4)
+4. Apply platform manifests (`platform/`)
+5. Configure ArgoCD to watch your gitops repo
+6. Push your Hugo CV source — CI builds, Octopus deploys, ArgoCD syncs
 
 ---
 
@@ -111,22 +112,20 @@ git push master (Hugo-CV repo)
         ▼
 ┌───────────────────┐
 │  Gitea Actions    │  (or GitHub Actions — same steps)
-│  .gitea/workflows │
+│  .gitea/workflows │  example workflows provided, adapt to your setup
 │  /build.yml       │
 │                   │
-│  1. docker build  │──► quay.io/YOUR_REGISTRY/YOUR_IMAGE:master-<sha>
+│  1. docker build  │──► YOUR_REGISTRY/YOUR_IMAGE:master-<sha>
 │  2. docker push   │
 │  3. octo release  │
 └────────┬──────────┘
          │
          ▼
 ┌───────────────────┐
-│  Octopus Deploy   │
-│                   │
+│  Octopus Deploy   │  ⚠ setup not covered here
+│                   │  see octopus.com/docs
 │  Project: Hugo-CV │
 │  Env: production  │
-│  → "Deploy K8s    │
-│     YAML" step    │
 └────────┬──────────┘
          │
          ▼
@@ -140,9 +139,8 @@ git push master (Hugo-CV repo)
          │
          ▼
   hugo-cv namespace
-  ├── cv-olivier   → cv.YOUR_DOMAIN
-  ├── cv-architect → architect.YOUR_DOMAIN
-  └── cv-octy      → octy.YOUR_DOMAIN
+  ├── cv-<persona1> → cv.YOUR_DOMAIN
+  └── cv-<persona2> → persona2.YOUR_DOMAIN
 ```
 
 ---
@@ -154,6 +152,7 @@ Replace these placeholders throughout the manifests:
 | Placeholder | Your value | Example |
 |------------|-----------|---------|
 | `YOUR_DOMAIN` | Your root domain | `example.com` |
+| `YOUR_PERSONA_NAME` | First CV persona name (used in Gateway listener and HTTPRoute) | `olivier` |
 | `YOUR_NODE_IP` | Hetzner node public IP | `1.2.3.4` |
 | `YOUR_HOSTNAME` | Kairos node hostname | `kairos` |
 | `YOUR_REGISTRY` | Container registry host | `quay.io` |
@@ -176,6 +175,34 @@ For password-protected CV (htpasswd): `htpasswd -B -c nginx/cv-htpasswd USERNAME
 ## Issues & Lessons Learned
 
 Real issues encountered building this platform. Shared so you don't have to rediscover them.
+
+<details>
+<summary>HTTPRoute backend returns 500 — cross-namespace ReferenceGrant missing</summary>
+
+**Symptom:** The Gateway accepts the HTTPRoute and DNS resolves correctly, but requests return 500. The HTTPRoute status shows `RefNotPermitted`.
+
+**Root cause:** Gateway API requires an explicit `ReferenceGrant` in the backend's namespace whenever an HTTPRoute references a Service in a different namespace. In this platform, HTTPRoutes live in `default` and Services live in `hugo-cv` — without the grant, Cilium rejects the backend reference entirely.
+
+**Fix:** Create a `ReferenceGrant` in the `hugo-cv` namespace:
+```yaml
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-default-to-hugo-cv
+  namespace: hugo-cv
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: default
+  to:
+    - group: ""
+      kind: Service
+```
+This is included in `platform/gateway/referencegrant.yaml` and the Helm chart automatically creates it via `apps/hugo-cv/helm/templates/referencegrant.yaml`.
+
+**Lesson:** Any time HTTPRoutes and their backend Services are in different namespaces, a ReferenceGrant is mandatory. It is not created automatically by any component.
+</details>
 
 <details>
 <summary>HTTP-01 ACME challenge returns 404 on ALL routes, not just the challenge path</summary>
@@ -266,7 +293,11 @@ helm upgrade gitea gitea-charts/gitea \
 
 **Symptom:** After installing Hetzner Cloud Controller Manager, nodes show a private IP as `InternalIP`. Components that rely on the node IP (like kubelet certificate SANs) break.
 
-**Root cause:** CCM was installed with `networking.enabled=true`. On clusters where the private Hetzner network is not configured or the node IP doesn't match the kubelet certificate SAN, this causes a TLS handshake failure.
+**Root cause:** CCM was installed with `networking.enabled=true`. When networking is enabled, the CCM activates its **Route Controller**, which programs routes into the Hetzner private network and sets the node's `InternalIP` to the **private network IP**. On a single-node cluster, this is unnecessary — and it breaks kubelet TLS because the kubelet certificate SAN only covers the public IP.
+
+**What `networking.enabled` actually controls** ([official docs](https://github.com/hetznercloud/hcloud-cloud-controller-manager/blob/main/docs/explanation/private-networks.md)):
+- `true` — enables the Route Controller: programs Hetzner private network routes for native pod-to-pod routing across nodes (no VXLAN overlay), and enables private IP targets for Hetzner LoadBalancers. Requires a CNI with native routing support (Cilium with `routing-mode: native`), a matching `clusterCIDR`, and all nodes attached to the private network.
+- `false` (default) — Route Controller disabled. CNI handles all pod networking via overlay. Node `InternalIP` stays as the public IP. No IP range planning required.
 
 **Fix:** Install CCM with `networking.enabled=false`:
 ```bash
@@ -276,7 +307,7 @@ helm upgrade --install hcloud-cloud-controller-manager \
   --set networking.enabled=false
 ```
 
-**Lesson:** Unless you explicitly need Hetzner private network routing between nodes, set `networking.enabled=false` on the CCM.
+**Lesson:** On a single-node cluster there are no inter-node routes to program, so `networking.enabled=false` is always correct. Only enable it on multi-node clusters where you want native pod routing through Hetzner private networks — and only with a CNI configured for native routing mode.
 </details>
 
 <details>
@@ -297,23 +328,36 @@ cert-manager will create new ones and begin the process again.
 </details>
 
 <details>
-<summary>cert-manager-webhook-ovh v0.9.8 ignores ClusterIssuer solver config (ambient mode)</summary>
+<summary>cert-manager-webhook-ovh — missing RBAC, webhook cannot read credentials secret</summary>
 
-**Symptom:** DNS-01 challenge fails even though the ClusterIssuer looks correct. The webhook logs show it's not reading credentials from the secret referenced in the solver config.
-
-**Root cause:** cert-manager-webhook-ovh v0.9.8 runs in "ambient credentials" mode. It ignores per-solver credential references in the ClusterIssuer spec and instead reads credentials from a globally configured secret set at webhook install time.
-
-**Fix:** Reinstall or upgrade the webhook with global credential values:
-```bash
-helm upgrade cert-manager-webhook-ovh cert-manager-webhook-ovh/cert-manager-webhook-ovh \
-  --namespace cert-manager \
-  --set groupName=acme.YOUR_DOMAIN \
-  --set ovhCredentials.applicationKey=YOUR_OVH_APP_KEY \
-  --set ovhCredentials.applicationSecret=YOUR_OVH_APP_SECRET \
-  --set ovhCredentials.consumerKey=YOUR_OVH_CONSUMER_KEY
+**Symptom:** DNS-01 challenges stay pending. Webhook logs show:
+```
+secrets "letsencrypt-prod-dns01-ovh-credentials" is forbidden:
+User "system:serviceaccount:cert-manager:cert-manager-webhook-ovh"
+cannot get resource "secrets" in API group "" in the namespace "cert-manager"
 ```
 
-**Lesson:** cert-manager-webhook-ovh v0.9.8 ambient mode — configure credentials at the Helm level, not in the ClusterIssuer.
+**Root cause:** The webhook Helm chart creates no Role or RoleBinding for the credentials secret. The chart install notes warn about this ("For any Issuer or ClusterIssuer you wish to create, please ensure you also create the corresponding Role and RoleBinding") but provides no automation for it.
+
+**Fix:** Manually create the Role and RoleBinding after installing the chart, then delete stuck challenges/orders to force a retry:
+```bash
+kubectl create role cert-manager-webhook-ovh-secret-reader \
+  --namespace cert-manager \
+  --verb=get \
+  --resource=secrets \
+  --resource-name=letsencrypt-prod-dns01-ovh-credentials
+
+kubectl create rolebinding cert-manager-webhook-ovh-secret-reader \
+  --namespace cert-manager \
+  --role=cert-manager-webhook-ovh-secret-reader \
+  --serviceaccount=cert-manager:cert-manager-webhook-ovh
+
+kubectl delete challenges,orders -n default --all
+```
+
+**Lesson:** The webhook chart does not auto-create RBAC for your credentials secret. Always add the Role and RoleBinding immediately after installing the webhook, before applying ClusterIssuers.
+
+> **Historical note:** cert-manager-webhook-ovh v0.9.8 previously used "ambient mode" — credentials were set at Helm install time via `--set ovhCredentials.*` and the ClusterIssuer secret refs were ignored. The current chart removed `ovhCredentials` entirely and requires credentials to be in a Kubernetes secret referenced by the ClusterIssuer. The ambient mode issue no longer applies.
 </details>
 
 <details>

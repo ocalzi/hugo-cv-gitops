@@ -1,16 +1,26 @@
 # ClusterIssuers for Let's Encrypt via OVH DNS-01 webhook.
 #
 # Prerequisites:
-#   1. cert-manager installed with --enable-gateway-api flag
-#   2. cert-manager-webhook-ovh installed (aureq fork v0.9.8+)
-#      helm repo add cert-manager-webhook-ovh https://aureq.github.io/cert-manager-webhook-ovh
+#   1. cert-manager installed (Gateway API support is on by default in v1.15+):
+#      helm install cert-manager jetstack/cert-manager \
+#        --namespace cert-manager --create-namespace \
+#        --set crds.enabled=true
+#
+#   2. cert-manager-webhook-ovh installed (credentials via secret, not Helm values):
 #      helm install cert-manager-webhook-ovh cert-manager-webhook-ovh/cert-manager-webhook-ovh \
 #        --namespace cert-manager \
-#        --set groupName=acme.YOUR_DOMAIN \
-#        --set ovhCredentials.applicationKey=YOUR_OVH_APP_KEY \
-#        --set ovhCredentials.applicationSecret=YOUR_OVH_APP_SECRET \
-#        --set ovhCredentials.consumerKey=YOUR_OVH_CONSUMER_KEY
+#        --set groupName=acme.YOUR_DOMAIN
+#
 #   3. OVH credentials secret created (see secret-ovh-credentials.yaml.example)
+#
+#   4. RBAC for webhook to read the secret (required — chart does not create this):
+#      kubectl create role cert-manager-webhook-ovh-secret-reader \
+#        --namespace cert-manager --verb=get --resource=secrets \
+#        --resource-name=letsencrypt-prod-dns01-ovh-credentials
+#      kubectl create rolebinding cert-manager-webhook-ovh-secret-reader \
+#        --namespace cert-manager \
+#        --role=cert-manager-webhook-ovh-secret-reader \
+#        --serviceaccount=cert-manager:cert-manager-webhook-ovh
 #
 # OVH API credentials: https://api.ovh.com/createApp/
 

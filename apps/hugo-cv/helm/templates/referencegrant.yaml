@@ -1,0 +1,16 @@
+# ReferenceGrant — allows HTTPRoutes in the gateway namespace (default) to
+# reference Services in the hugo-cv namespace.
+# Required by Gateway API when HTTPRoute and backend Service are in different namespaces.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-{{ .Values.gateway.namespace }}-to-hugo-cv
+  namespace: hugo-cv
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: {{ .Values.gateway.namespace }}
+  to:
+    - group: ""
+      kind: Service
